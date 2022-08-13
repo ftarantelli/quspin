@@ -13,6 +13,10 @@ sys.path.insert(0,quspin_path)
 #  to define the Lundblad equation for a two-leel system, and solve it    #
 #  using the evolve funcion.                                              #
 ###########################################################################
+#import quspin
+from scipy.linalg import kron
+from quspin.tools.measurements import obs_vs_time
+
 from quspin.operators import hamiltonian, commutator, anti_commutator
 from quspin.basis import spin_basis_1d # Hilbert space spin basis_1d
 from quspin.tools.evolution import evolve
@@ -23,32 +27,36 @@ import matplotlib.pyplot as plt # plotting library
 #
 ###### model parameters
 #
-L=8 # one qubit
+str = 'data.dat' #%(L, g)
+f = open(file=str, mode='w')
+
+N=8 # one qubit
 g=1.0 # detuning
-h=np.sqrt(2) # bare Rabi frequency
-Omega_Rabi=np.sqrt(Omega_0**2+delta**2) # Rabi frequency
-gamma = 0.5*np.sqrt(3) # decay rate
+h=0.
+gamma = 0.5 # decay rate
 #
 ##### create Hamiltonian to evolve unitarily
 # basis
-basis=spin_basis_1d(L,pauli=-1) # uses convention "+" = [[0,1],[0,0]]
+basis=spin_basis_1d(N,pauli=-1) # uses convention "+" = [[0,1],[0,0]]
 # site-coupling lists
-hx_list=[[Omega_0,i] for i in range(L)]
-hz_list=[[delta,i] for i in range(L)]
+x_list=[[-h,i] for i in range(N)]
+z_list=[[-g,i] for i in range(N)]
+xx_list=[[-1.,i,i+1] for i in range(N-1)] # OBC
 # static opstr list 
-static_H=[['x',hx_list],['z',hz_list]]
+static_H=[['x',x_list],['z',z_list],['xx',xx_list]]
+dynamic=[]
 # hamiltonian
-H=hamiltonian(static_H,[],basis=basis,dtype=np.float64)
+H=hamiltonian(static_H,dynamic,basis=basis,dtype=np.float64, check_symm=False, check_herm=False)
 #print('Hamiltonian:\n',H.toarray())
 #
 ##### create Lindbladian
 # site-coupling lists
-L_list=[[1.0j,i] for i in range(L)]
+L_list=[[1.0j,0]]#[1.0j,0], 
 # static opstr list 
-static_L=[['+',L_list]]
+static_L=[['z',L_list]]
 # Lindblad operator
-L=hamiltonian(static_L,[],basis=basis,dtype=np.complex128,check_herm=False)
-print('Lindblad operator:\n',L.toarray())
+L=hamiltonian(static_L,[],basis=basis,dtype=np.complex128,check_symm=False, check_herm=False)
+#print('Lindblad operator:\n',L.toarray())
 # pre-compute operators for efficiency
 L_dagger=L.getH()
 L_daggerL=L_dagger*L
@@ -153,17 +161,36 @@ EOM_args=(np.zeros((H.Ns,H.Ns),dtype=np.complex128,order="C"),    # auxiliary va
 t_max=6.0
 time=np.linspace(0.0,t_max,101)
 # define initial state
-rho0=np.array([[0.5,0.5j],[-0.5j,0.5]],dtype=np.complex128)
+EF, psi0 = H.eigsh(k=1,which="SA",maxiter=1E4)
+#psi0 = psi0.reshape((-1,))
+#rho0=np.array([[0.5,0.5j],[-0.5j,0.5]],dtype=np.complex128)
+rho0 = kron(np.conj(psi0.transpose()), psi0)
 # slow solution, uses Lindblad_EOM_v1
 #rho_t = evolve(rho0,time[0],time,Lindblad_EOM_v1,iterate=True,atol=1E-12,rtol=1E-12)
 # intermediate function, uses Lindblad_EOM_v2
 #rho_t = evolve(rho0,time[0],time,Lindblad_EOM_v2,f_params=EOM_args,iterate=True,atol=1E-12,rtol=1E-12) 
 # fast solution (but 3 times as memory intensive), uses Lindblad_EOM_v3
-rho_t = evolve(rho0,time[0],time,Lindblad_EOM_v3,f_params=EOM_args,iterate=True,atol=1E-12,rtol=1E-12) 
+rho_t = evolve(rho0,time[0],time,Lindblad_EOM_v3,f_params=EOM_args,iterate=True)#,atol=1E-12,rtol=1E-12) 
 #
+oper_sx_list=[[1.,i] for i in range(N)]
+oper_sx_static=[["x", oper_sx_list]]
+oper_sx=hamiltonian(oper_sx_static,[],basis=basis,dtype=np.complex128,check_symm=False, check_herm=False)
+
+#Sent_args = {"basis":basis,"chain_subsys":[j for j in range(N)]}
+#meas = obs_vs_time(rho_t,time,dict(Sx=oper_sx), return_state=True,Sent_args={})
+'''
 # compute state evolution
-population_down=np.zeros(time.shape,dtype=np.float64)
+meas=np.zeros(time.shape,dtype=np.float64)
 for i,rho_flattened in enumerate(rho_t):
-	rho=rho_flattened.reshape(H.Ns,H.Ns)
-	population_down[i]=rho_flattened[1,1].real
-	print("time={0:.2f}, population of down state = {1:0.8f}".format(time[i],population_down[i]) )
+	print(rho_flattened)
+	#rho=rho_flattened.reshape(H.Ns,H.Ns)
+	#population_down[i]=rho_flattened[1,1].real
+	#print("time={0:.2f}, population of down state={1:0.8f}".format(time[i],population_down[i]) )
+'''
+#f.write('%.9f	%.9f\n' %(C.time, C.Mz) )
+print(rho_t[1])
+
+f.close()
+
+
+
